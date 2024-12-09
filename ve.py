@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import pandas as pd
 from pathlib import Path
 from sklearn.neighbors import NearestNeighbors
+from sklearn.cluster import DBSCAN
 
 # Load environment variables
 load_dotenv()
@@ -60,15 +61,41 @@ def create_visualization(texts):
         tsne = TSNE(n_components=2, random_state=42)
         embeddings_2d = tsne.fit_transform(embeddings_array)
     
-    # Create DataFrame for plotting
+    # Perform DBSCAN clustering
+    clustering = DBSCAN(eps=0.5, min_samples=2).fit(embeddings_2d)
+    labels = clustering.labels_
+    
+    # Create DataFrame with texts and their cluster labels
     df = pd.DataFrame({
+        'text': processed_texts,
+        'cluster': labels,
         'x': embeddings_2d[:, 0],
         'y': embeddings_2d[:, 1],
-        'text': processed_texts,
         'short_text': [shorten_text(text) for text in processed_texts]
     })
     
-    # Create custom hover text
+    # Display clustered keywords in the sidebar
+    st.sidebar.markdown("## Keyword Groups")
+    st.sidebar.markdown("*Click to copy group to clipboard*")
+    
+    unique_clusters = sorted(df['cluster'].unique())
+    for cluster in unique_clusters:
+        if cluster == -1:
+            group_name = "Unclustered Keywords"
+        else:
+            group_name = f"Group {cluster + 1}"
+        
+        keywords = df[df['cluster'] == cluster]['text'].tolist()
+        keywords_text = "\n".join(keywords)
+        
+        st.sidebar.text_area(
+            group_name,
+            keywords_text,
+            height=100,
+            key=f"cluster_{cluster}"
+        )
+    
+    # Create DataFrame for plotting
     hover_text = [f"Text: {text}" for text in processed_texts]
     
     # Calculate similarity scores based on distances to nearest neighbors
