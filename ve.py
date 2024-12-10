@@ -1,3 +1,5 @@
+# your_app.py
+
 import os
 from dotenv import load_dotenv
 import numpy as np
@@ -9,7 +11,7 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import DBSCAN
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
 
 # Initialize OpenAI API key
@@ -17,7 +19,9 @@ openai.api_key = os.getenv('OPENAI_API_KEY')
 
 @st.cache_data(show_spinner=False)
 def get_embedding_cached(text, model="text-embedding-3-small"):
-    """Get embedding for a single text using OpenAI API with caching"""
+    """
+    Get embedding for a single text using OpenAI API with caching.
+    """
     try:
         response = openai.Embedding.create(
             input=text,
@@ -29,7 +33,9 @@ def get_embedding_cached(text, model="text-embedding-3-small"):
         return None
 
 def shorten_text(text, max_length=20):
-    """Shorten text for labels while preserving meaning"""
+    """
+    Shorten text for labels while preserving meaning.
+    """
     if len(text) <= max_length:
         return text
     words = text.split()
@@ -38,7 +44,9 @@ def shorten_text(text, max_length=20):
     return " ".join(words[:2]) + "..."
 
 def process_text(text):
-    """Convert text to readable format"""
+    """
+    Convert text to readable format.
+    """
     return text.strip().title()
 
 def create_visualization(texts, max_length):
@@ -143,8 +151,8 @@ def create_visualization(texts, max_length):
     fig.update_layout(
         title={
             'text': 'Content Similarity Visualization',
-            'y':0.95,
-            'x':0.5,
+            'y': 0.95,
+            'x': 0.5,
             'xanchor': 'center',
             'yanchor': 'top',
             'font': dict(size=24)
