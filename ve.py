@@ -3,7 +3,7 @@
 import os
 from dotenv import load_dotenv
 import numpy as np
-import openai  # Import openai directly
+from openai import OpenAI  # Updated import
 from sklearn.manifold import TSNE
 import streamlit as st
 import plotly.graph_objects as go
@@ -14,8 +14,8 @@ from sklearn.cluster import DBSCAN
 # Load environment variables from .env file
 load_dotenv()
 
-# Initialize OpenAI API key
-openai.api_key = os.getenv('OPENAI_API_KEY')
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 @st.cache_data(show_spinner=False)
 def get_embedding_cached(text, model="text-embedding-3-small"):
@@ -23,11 +23,11 @@ def get_embedding_cached(text, model="text-embedding-3-small"):
     Get embedding for a single text using OpenAI API with caching.
     """
     try:
-        response = openai.Embedding.create(
+        response = client.embeddings.create(
             input=text,
             model=model
         )
-        return response['data'][0]['embedding']
+        return response.data[0].embedding
     except Exception as e:
         st.error(f"Error fetching embedding for text: {text}\n{e}")
         return None
