@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 import numpy as np
-from openai import OpenAI
+import openai  # Corrected import for OpenAI
 from sklearn.manifold import TSNE
 import streamlit as st
 import plotly.express as px
@@ -14,16 +14,20 @@ from sklearn.cluster import DBSCAN
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# Initialize OpenAI API key
+openai.api_key = os.getenv('OPENAI_API_KEY')
 
 def get_embedding(text):
     """Get embedding for a single text using OpenAI API"""
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text
-    )
-    return response.data[0].embedding
+    try:
+        response = openai.Embedding.create(
+            model="text-embedding-ada-002",  # Updated to a valid model name
+            input=text
+        )
+        return response['data'][0]['embedding']
+    except Exception as e:
+        st.error(f"Error fetching embedding for text: {text}\n{e}")
+        return None
 
 def shorten_text(text, max_length=20):
     """Shorten text for labels while preserving meaning"""
@@ -38,7 +42,7 @@ def process_text(text):
     """Convert text to readable format"""
     return text.strip().title()
 
-def create_visualization(texts):
+def create_visualization(texts, max_length):
     if not texts:
         st.warning("No input texts provided.")
         return
@@ -51,14 +55,21 @@ def create_visualization(texts):
             processed_text = process_text(text)
             processed_texts.append(processed_text)
             embedding = get_embedding(processed_text)
-            embeddings.append(embedding)
+            if embedding is not None:
+                embeddings.append(embedding)
+        
+        if not embeddings:
+            st.error("No embeddings were fetched. Please check your OpenAI API key and input texts.")
+            return
     
     # Convert embeddings to numpy array
     embeddings_array = np.array(embeddings)
     
     with st.spinner("Reducing dimensions..."):
-        # Reduce dimensions using t-SNE
-        tsne = TSNE(n_components=2, random_state=42)
+        n_samples = embeddings_array.shape[0]
+        # Set perplexity to min(30, n_samples - 1)
+        perplexity = min(30, max(5, n_samples - 1))  # Ensuring perplexity is at least 5
+        tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
         embeddings_2d = tsne.fit_transform(embeddings_array)
     
     # Perform DBSCAN clustering
@@ -71,7 +82,7 @@ def create_visualization(texts):
         'cluster': labels,
         'x': embeddings_2d[:, 0],
         'y': embeddings_2d[:, 1],
-        'short_text': [shorten_text(text) for text in processed_texts]
+        'short_text': [shorten_text(text, max_length) for text in processed_texts]
     })
     
     # Display clustered keywords in the sidebar
@@ -167,8 +178,7 @@ def create_visualization(texts):
                 buttons=[
                     dict(label="Reset View",
                          method="relayout",
-                         args=[{"xaxis.range": [None, None],
-                               "yaxis.range": [None, None]}]),
+                         args=[{"xaxis.autorange": True, "yaxis.autorange": True}]),
                 ]
             )
         ]
@@ -219,7 +229,10 @@ def main():
     uploaded_file = st.file_uploader("Or upload a text file:", type=['txt'])
     
     if uploaded_file is not None:
-        text_input = uploaded_file.getvalue().decode()
+        try:
+            text_input = uploaded_file.getvalue().decode()
+        except Exception as e:
+            st.error(f"Error reading the uploaded file: {e}")
     
     # Add visualization options
     col1, col2 = st.columns(2)
@@ -233,7 +246,7 @@ def main():
             if len(texts) < 2:
                 st.error("Please enter at least 2 texts to compare.")
             else:
-                create_visualization(texts)
+                create_visualization(texts, max_length)
         else:
             st.warning("Please enter some text or upload a file.")
 
