@@ -15,8 +15,9 @@ load_dotenv()
 # Initialize OpenAI API key
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
-def get_embedding(text, model="text-embedding-3-small"):
-    """Get embedding for a single text using OpenAI API"""
+@st.cache_data(show_spinner=False)
+def get_embedding_cached(text, model="text-embedding-3-small"):
+    """Get embedding for a single text using OpenAI API with caching"""
     try:
         response = openai.Embedding.create(
             input=text,
@@ -52,7 +53,7 @@ def create_visualization(texts, max_length):
         for text in texts:
             processed_text = process_text(text)
             processed_texts.append(processed_text)
-            embedding = get_embedding(processed_text)
+            embedding = get_embedding_cached(processed_text)
             if embedding is not None:
                 embeddings.append(embedding)
 
