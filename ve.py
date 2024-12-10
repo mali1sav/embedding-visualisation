@@ -1,13 +1,11 @@
 import os
 from dotenv import load_dotenv
 import numpy as np
-import openai  # Corrected import for OpenAI
+import openai  # Import openai directly
 from sklearn.manifold import TSNE
 import streamlit as st
-import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-from pathlib import Path
 from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import DBSCAN
 
@@ -17,12 +15,12 @@ load_dotenv()
 # Initialize OpenAI API key
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
-def get_embedding(text):
+def get_embedding(text, model="text-embedding-3-small"):
     """Get embedding for a single text using OpenAI API"""
     try:
         response = openai.Embedding.create(
-            model="text-embedding-ada-002",  # Updated to a valid model name
-            input=text
+            input=text,
+            model=model
         )
         return response['data'][0]['embedding']
     except Exception as e:
@@ -46,36 +44,36 @@ def create_visualization(texts, max_length):
     if not texts:
         st.warning("No input texts provided.")
         return
-    
+
     with st.spinner("Getting embeddings..."):
         embeddings = []
         processed_texts = []
-        
+
         for text in texts:
             processed_text = process_text(text)
             processed_texts.append(processed_text)
             embedding = get_embedding(processed_text)
             if embedding is not None:
                 embeddings.append(embedding)
-        
+
         if not embeddings:
             st.error("No embeddings were fetched. Please check your OpenAI API key and input texts.")
             return
-    
+
     # Convert embeddings to numpy array
     embeddings_array = np.array(embeddings)
-    
+
     with st.spinner("Reducing dimensions..."):
         n_samples = embeddings_array.shape[0]
-        # Set perplexity to min(30, n_samples - 1)
-        perplexity = min(30, max(5, n_samples - 1))  # Ensuring perplexity is at least 5
+        # Set perplexity to min(30, n_samples - 1) and at least 5
+        perplexity = min(30, max(5, n_samples - 1))
         tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
         embeddings_2d = tsne.fit_transform(embeddings_array)
-    
+
     # Perform DBSCAN clustering
     clustering = DBSCAN(eps=0.5, min_samples=2).fit(embeddings_2d)
     labels = clustering.labels_
-    
+
     # Create DataFrame with texts and their cluster labels
     df = pd.DataFrame({
         'text': processed_texts,
@@ -84,39 +82,39 @@ def create_visualization(texts, max_length):
         'y': embeddings_2d[:, 1],
         'short_text': [shorten_text(text, max_length) for text in processed_texts]
     })
-    
+
     # Display clustered keywords in the sidebar
     st.sidebar.markdown("## Keyword Groups")
     st.sidebar.markdown("*Click to copy group to clipboard*")
-    
+
     unique_clusters = sorted(df['cluster'].unique())
     for cluster in unique_clusters:
         if cluster == -1:
             group_name = "Unclustered Keywords"
         else:
             group_name = f"Group {cluster + 1}"
-        
+
         keywords = df[df['cluster'] == cluster]['text'].tolist()
         keywords_text = "\n".join(keywords)
-        
+
         st.sidebar.text_area(
             group_name,
             keywords_text,
             height=100,
             key=f"cluster_{cluster}"
         )
-    
+
     # Create DataFrame for plotting
     hover_text = [f"Text: {text}" for text in processed_texts]
-    
+
     # Calculate similarity scores based on distances to nearest neighbors
     nbrs = NearestNeighbors(n_neighbors=3).fit(embeddings_array)
     distances, _ = nbrs.kneighbors(embeddings_array)
     similarity_scores = 1 / (1 + np.mean(distances, axis=1))  # Convert distances to similarities
-    
+
     # Create figure with custom layout
     fig = go.Figure()
-    
+
     # Add scatter points
     fig.add_trace(go.Scatter(
         x=df['x'],
@@ -139,7 +137,7 @@ def create_visualization(texts, max_length):
         ),
         textfont=dict(size=10)
     ))
-    
+
     # Update layout for better readability
     fig.update_layout(
         title={
@@ -168,7 +166,7 @@ def create_visualization(texts, max_length):
         showlegend=False,
         hovermode='closest'
     )
-    
+
     # Add zoom and pan buttons
     fig.update_layout(
         updatemenus=[
@@ -183,10 +181,10 @@ def create_visualization(texts, max_length):
             )
         ]
     )
-    
+
     # Show the plot
     st.plotly_chart(fig, use_container_width=True)
-    
+
     # Add text search functionality
     search_term = st.text_input("Search for specific text:")
     if search_term:
@@ -199,9 +197,9 @@ def create_visualization(texts, max_length):
 
 def main():
     st.set_page_config(page_title="Embedding Visualization", layout="wide")
-    
+
     st.title("Text Embedding Visualization")
-    
+
     # Add description
     st.markdown("""
     This tool creates a visualization of text similarities using OpenAI embeddings. 
@@ -217,28 +215,26 @@ def main():
     1. Enter your texts below (one per line)
     2. Click 'Generate Visualization' to create the plot
     """)
-    
+
     # Create text input area
     text_input = st.text_area(
         "Enter your texts (one per line):",
         height=200,
         placeholder="Enter text here...\nOne item per line..."
     )
-    
+
     # Add file uploader as an alternative input method
     uploaded_file = st.file_uploader("Or upload a text file:", type=['txt'])
-    
+
     if uploaded_file is not None:
         try:
             text_input = uploaded_file.getvalue().decode()
         except Exception as e:
             st.error(f"Error reading the uploaded file: {e}")
-    
+
     # Add visualization options
-    col1, col2 = st.columns(2)
-    with col1:
-        max_length = st.slider("Maximum label length:", 10, 50, 20)
-    
+    max_length = st.slider("Maximum label length:", 10, 50, 20)
+
     # Process input when button is clicked
     if st.button("Generate Visualization"):
         if text_input:
