@@ -1,54 +1,74 @@
-# Keyword Embedding Visualization
+# Embedding Visualisation Tool
 
-A Streamlit application that visualizes keyword relationships using OpenAI embeddings and clustering. The app processes keywords, generates embeddings, clusters them, and creates an interactive visualization with cluster summaries.
+A powerful tool for visualizing and analyzing text embeddings with SEO recommendations. This tool helps content editors understand and improve content alignment with search intent.
 
 ## Features
 
-- Text embedding using OpenAI's text-embedding-3-small model
-- Hierarchical clustering with customizable parameters
-- Interactive visualization using Plotly
-- Cluster analysis with key terms and summaries
-- Responsive web interface using Streamlit
+- **Interactive Visualization**: Display embeddings of intent, paragraphs, and keywords in a 2D space
+- **Content Analysis**: Analyze semantic relationships between different text elements
+- **SEO Recommendations**: Generate Thai-language SEO recommendations based on content analysis
+- **Real-time Updates**: Visualizations and analysis persist between interactions
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/mali1sav/embedding-visualisation.git
+cd embedding-visualisation
+```
+
+2. Create and activate a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Create a `.env` file with your API keys (see `.env.example` for format):
+```
+OPENAI_API_KEY=sk-...
+OPENROUTER_API_KEY=sk-...
+```
+
+## Usage
+
+1. Run the core alignment tool:
+```bash
+streamlit run core_align.py
+```
+
+2. In the web interface:
+   - Enter your search intent in Thai
+   - Input your article content (paragraphs separated by double newlines)
+   - Add target keywords (one per line)
+   - Click "Generate Visualization" to see the embedding space
+   - Click "Generate SEO Recommendations" for content improvement suggestions
+
+## Visualization Guide
+
+- **Gold Star**: Represents the main intent
+- **Green Circles**: Article paragraphs
+- **Blue Diamonds**: Target keywords
+- Darker colors indicate higher similarity
+- Closer positions indicate stronger semantic relationships
 
 ## Requirements
 
 - Python 3.8+
 - OpenAI API key
 - OpenRouter API key
+- macOS for system SSL certificates
 
-## Installation
+## Notes
 
-1. Clone the repository:
-```bash
-git clone [your-repo-url]
-cd [repo-name]
-```
+- The tool uses macOS system SSL certificates at `/etc/ssl/cert.pem`
+- All SEO recommendations are generated in Thai language
+- Visualization settings can be adjusted using the sliders
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+## License
 
-3. Create a `.env` file in the root directory with your API keys:
-```
-OPENAI_API_KEY=your_openai_api_key
-OPENROUTER_API_KEY=your_openrouter_api_key
-```
-
-## Usage
-
-1. Run the Streamlit app:
-```bash
-streamlit run ve.py
-```
-
-2. Enter keywords (one per line) in the text area
-3. Adjust the visualization parameters if needed:
-   - Max text length
-   - Number of clusters
-   - Minimum cluster size
-4. View the interactive visualization and cluster analysis in the sidebar
-
-## Note
-
-This application uses OpenAI's API for embeddings and OpenRouter for LLM functionality. Make sure you have valid API keys and sufficient credits before running the application.
+MIT License
