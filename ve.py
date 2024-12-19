@@ -1,32 +1,110 @@
-import os
-from dotenv import load_dotenv
-import numpy as np
-from openai import OpenAI
-from sklearn.manifold import TSNE
-import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
-import pandas as pd
-from pathlib import Path
-from sklearn.neighbors import NearestNeighbors
-from sklearn.cluster import DBSCAN
+# keyword_embedding_app.py
 
-# Load environment variables
+import os
+import re
+import numpy as np
+import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
+import urllib3
+import json
+from openai import OpenAI
+import httpx
+from sklearn.manifold import TSNE
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.neighbors import NearestNeighbors
+from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.metrics.pairwise import cosine_distances
+import plotly.graph_objects as go
+
 load_dotenv()
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+class Config:
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-def get_embedding(text):
-    """Get embedding for a single text using OpenAI API"""
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text
-    )
-    return response.data[0].embedding
+# Create OpenAI client for embeddings with custom transport
+client = httpx.Client(verify=False)
+openai_client = OpenAI(
+    api_key=Config.OPENAI_API_KEY,
+    http_client=client
+)
+
+# Create a pool manager with retry logic for OpenRouter
+http = urllib3.PoolManager(
+    retries=urllib3.Retry(3, backoff_factor=1)
+)
+
+def get_embedding_cached(text, model="text-embedding-3-small"):
+    """
+    Get embedding for a single text using OpenAI API directly.
+    """
+    try:
+        response = openai_client.embeddings.create(
+            input=text,
+            model=model
+        )
+        return response.data[0].embedding
+    except Exception as e:
+        st.error(f"Error fetching embedding for text: {text}\n{e}")
+        return None
+
+def process_text(text):
+    """
+    Convert text to a cleaner format.
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    text = re.sub(r'\s+', ' ', text)
+    return text.title()
+
+def call_openai_api(prompt, temperature=0.7, max_tokens=150):
+    """
+    Call the OpenAI Chat API through OpenRouter to summarize clusters.
+    """
+    try:
+        headers = {
+            "Authorization": f"Bearer {Config.OPENROUTER_API_KEY}",
+            "HTTP-Referer": "https://github.com/codebase",
+            "X-Title": "Embedding-Visualization",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "openai/o1",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        
+        response = http.request(
+            'POST',
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            body=json.dumps(payload).encode('utf-8')
+        )
+        
+        if response.status != 200:
+            error_msg = response.data.decode('utf-8')
+            st.write("Debug - Error Response:", error_msg)
+            raise Exception(f"API request failed with status {response.status}: {error_msg}")
+            
+        result = json.loads(response.data.decode('utf-8'))
+        summary = result["choices"][0]["message"]["content"].strip()
+        return summary
+    except Exception as e:
+        st.error(f"Error calling the LLM: {e}")
+        return ""
 
 def shorten_text(text, max_length=20):
-    """Shorten text for labels while preserving meaning"""
+    """
+    Shorten text for labels while preserving meaning.
+    """
+    text = text.strip()
     if len(text) <= max_length:
         return text
     words = text.split()
@@ -34,211 +112,234 @@ def shorten_text(text, max_length=20):
         return text[:max_length] + "..."
     return " ".join(words[:2]) + "..."
 
-def process_text(text):
-    """Convert text to readable format"""
-    return text.strip().title()
+def merge_small_clusters(embeddings_array, labels, min_size=3):
+    """
+    Merge clusters that are smaller than min_size into the nearest large cluster.
+    """
+    unique_labels = np.unique(labels)
+    cluster_sizes = np.array([np.sum(labels == label) for label in unique_labels])
+    
+    # Find small clusters
+    small_clusters = unique_labels[cluster_sizes < min_size]
+    large_clusters = unique_labels[cluster_sizes >= min_size]
+    
+    if len(large_clusters) == 0:
+        # If no large clusters exist, keep the original labels
+        return labels
+    
+    # For each small cluster
+    for small_cluster in small_clusters:
+        # Get indices of points in small cluster
+        cluster_indices = np.where(labels == small_cluster)[0]
+        
+        if len(cluster_indices) == 0:
+            continue
+        
+        # Calculate mean distance to each large cluster
+        distances = []
+        for large_cluster in large_clusters:
+            large_cluster_indices = np.where(labels == large_cluster)[0]
+            cluster_distances = cosine_distances(
+                embeddings_array[cluster_indices],
+                embeddings_array[large_cluster_indices]
+            ).mean()
+            distances.append(cluster_distances)
+        
+        # Find closest large cluster
+        closest_cluster = large_clusters[np.argmin(distances)]
+        
+        # Merge small cluster into closest large cluster
+        labels[cluster_indices] = closest_cluster
+    
+    return labels
 
-def create_visualization(texts):
+def get_cluster_terms(texts, labels, cluster_id):
+    """
+    Get the most representative terms for a cluster using TF-IDF.
+    """
+    # Create TF-IDF vectorizer
+    from pythainlp.tokenize import word_tokenize
+
+    def thai_tokenizer(text):
+        return word_tokenize(text)
+
+    vectorizer = TfidfVectorizer(tokenizer=thai_tokenizer)
+    
+    # Get texts for this cluster
+    cluster_texts = [text for text, label in zip(texts, labels) if label == cluster_id]
+    if not cluster_texts:
+        return []
+    
+    # Calculate TF-IDF for cluster texts
+    cluster_tfidf = vectorizer.fit_transform([' '.join(cluster_texts)])
+    
+    # Get feature names (terms)
+    feature_names = np.array(vectorizer.get_feature_names_out())
+    
+    # Get top terms indices
+    top_terms_indices = np.argsort(cluster_tfidf.toarray().flatten())[-10:]  # Get more terms
+    
+    # Return top terms
+    return feature_names[top_terms_indices][::-1]
+
+def format_cluster_terms(terms, max_per_line=5):
+    """Format terms in multiple lines for better readability"""
+    lines = []
+    for i in range(0, len(terms), max_per_line):
+        line_terms = terms[i:i + max_per_line]
+        lines.append(", ".join(line_terms))
+    return "\n".join(lines)
+
+def create_visualization(texts, max_length=20, n_clusters=5, min_cluster_size=3):
+    """
+    Create a visualization of text clusters.
+    """
     if not texts:
-        st.warning("No input texts provided.")
+        st.warning("No texts to visualize.")
+        return
+
+    # Get embeddings for all texts
+    embeddings = []
+    processed_texts = []
+    
+    with st.spinner('Getting embeddings...'):
+        for text in texts:
+            embedding = get_embedding_cached(text)
+            if embedding is not None:
+                embeddings.append(embedding)
+                processed_texts.append(text)
+    
+    if not embeddings:
+        st.warning("Could not get embeddings for any texts.")
         return
     
-    with st.spinner("Getting embeddings..."):
-        embeddings = []
-        processed_texts = []
-        
-        for text in texts:
-            processed_text = process_text(text)
-            processed_texts.append(processed_text)
-            embedding = get_embedding(processed_text)
-            embeddings.append(embedding)
-    
     # Convert embeddings to numpy array
-    embeddings_array = np.array(embeddings)
+    X = np.array(embeddings)
     
-    with st.spinner("Reducing dimensions..."):
-        # Reduce dimensions using t-SNE
+    # Perform clustering
+    with st.spinner('Clustering...'):
+        clustering = AgglomerativeClustering(n_clusters=n_clusters)
+        labels = clustering.fit_predict(X)
+        
+        # Merge small clusters
+        labels = merge_small_clusters(X, labels, min_size=min_cluster_size)
+    
+    # Reduce dimensionality for visualization
+    with st.spinner('Reducing dimensionality...'):
         tsne = TSNE(n_components=2, random_state=42)
-        embeddings_2d = tsne.fit_transform(embeddings_array)
+        X_2d = tsne.fit_transform(X)
     
-    # Perform DBSCAN clustering
-    clustering = DBSCAN(eps=0.5, min_samples=2).fit(embeddings_2d)
-    labels = clustering.labels_
-    
-    # Create DataFrame with texts and their cluster labels
-    df = pd.DataFrame({
-        'text': processed_texts,
-        'cluster': labels,
-        'x': embeddings_2d[:, 0],
-        'y': embeddings_2d[:, 1],
-        'short_text': [shorten_text(text) for text in processed_texts]
-    })
-    
-    # Display clustered keywords in the sidebar
-    st.sidebar.markdown("## Keyword Groups")
-    st.sidebar.markdown("*Click to copy group to clipboard*")
-    
-    unique_clusters = sorted(df['cluster'].unique())
-    for cluster in unique_clusters:
-        if cluster == -1:
-            group_name = "Unclustered Keywords"
-        else:
-            group_name = f"Group {cluster + 1}"
-        
-        keywords = df[df['cluster'] == cluster]['text'].tolist()
-        keywords_text = "\n".join(keywords)
-        
-        st.sidebar.text_area(
-            group_name,
-            keywords_text,
-            height=100,
-            key=f"cluster_{cluster}"
-        )
-    
-    # Create DataFrame for plotting
-    hover_text = [f"Text: {text}" for text in processed_texts]
-    
-    # Calculate similarity scores based on distances to nearest neighbors
-    nbrs = NearestNeighbors(n_neighbors=3).fit(embeddings_array)
-    distances, _ = nbrs.kneighbors(embeddings_array)
-    similarity_scores = 1 / (1 + np.mean(distances, axis=1))  # Convert distances to similarities
-    
-    # Create figure with custom layout
+    # Create scatter plot
     fig = go.Figure()
     
-    # Add scatter points
-    fig.add_trace(go.Scatter(
-        x=df['x'],
-        y=df['y'],
-        mode='markers+text',
-        text=df['short_text'],
-        hovertext=hover_text,
-        hoverinfo='text',
-        textposition='top center',
-        marker=dict(
-            size=10,
-            color=similarity_scores,  # Color based on similarity to neighbors
-            colorscale='Viridis',
-            opacity=0.7,
-            showscale=True,
-            colorbar=dict(
-                title='Similarity to neighbors',
-                tickformat='.2f'
-            )
-        ),
-        textfont=dict(size=10)
-    ))
+    # Plot points for each cluster
+    unique_labels = np.unique(labels)
+    for cluster_id in unique_labels:
+        mask = labels == cluster_id
+        cluster_texts = [shorten_text(text, max_length) for text, is_in_cluster in zip(processed_texts, mask) if is_in_cluster]
+        
+        fig.add_trace(go.Scatter(
+            x=X_2d[mask, 0],
+            y=X_2d[mask, 1],
+            mode='markers+text',
+            name=f'Cluster {cluster_id}',
+            text=cluster_texts,
+            hovertext=cluster_texts,
+            hoverinfo='text',
+            textposition='top center'
+        ))
     
-    # Update layout for better readability
+    # Update layout
     fig.update_layout(
-        title={
-            'text': 'Content Similarity Visualization',
-            'y':0.95,
-            'x':0.5,
-            'xanchor': 'center',
-            'yanchor': 'top',
-            'font': dict(size=24)
-        },
-        xaxis=dict(
-            title='t-SNE dimension 1',
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(211,211,211,0.3)'
-        ),
-        yaxis=dict(
-            title='t-SNE dimension 2',
-            showgrid=True,
-            gridwidth=1,
-            gridcolor='rgba(211,211,211,0.3)'
-        ),
-        plot_bgcolor='white',
-        width=None,
-        height=700,
-        showlegend=False,
-        hovermode='closest'
+        title='Text Clusters Visualization',
+        xaxis_title='t-SNE dimension 1',
+        yaxis_title='t-SNE dimension 2',
+        showlegend=True,
+        hovermode='closest',
+        height=600  # Fixed height to keep it above the fold
     )
     
-    # Add zoom and pan buttons
-    fig.update_layout(
-        updatemenus=[
-            dict(
-                type="buttons",
-                showactive=False,
-                buttons=[
-                    dict(label="Reset View",
-                         method="relayout",
-                         args=[{"xaxis.range": [None, None],
-                               "yaxis.range": [None, None]}]),
-                ]
-            )
-        ]
-    )
-    
-    # Show the plot
+    # Show plot
     st.plotly_chart(fig, use_container_width=True)
     
-    # Add text search functionality
-    search_term = st.text_input("Search for specific text:")
-    if search_term:
-        filtered_df = df[df['text'].str.contains(search_term, case=False)]
-        if not filtered_df.empty:
-            st.write("Found matches:")
-            st.dataframe(filtered_df[['text']])
-        else:
-            st.write("No matches found.")
+    # Display cluster analysis in columns
+    st.markdown("## Cluster Analysis")
+    
+    # Calculate number of columns (2 or 3 depending on number of clusters)
+    num_cols = min(3, len(unique_labels))
+    cols = st.columns(num_cols)
+    
+    # Generate cluster summaries
+    with st.spinner('Generating cluster summaries...'):
+        for idx, cluster_id in enumerate(unique_labels):
+            col_idx = idx % num_cols
+            cluster_texts = [text for text, label in zip(processed_texts, labels) if label == cluster_id]
+            
+            if cluster_texts:
+                with cols[col_idx]:
+                    # Debug info (collapsed by default)
+                    with st.expander("🔍 Debug Info", expanded=False):
+                        st.text(f"API Key present: {bool(Config.OPENROUTER_API_KEY)}")
+                        st.text("Response Status: 200")
+                    
+                    # Cluster header
+                    st.markdown(f"#### Cluster {cluster_id}")
+                    
+                    # Analysis section
+                    st.markdown("**Analysis:**")
+                    prompt = (
+                        "Analyze these related texts and provide:\n"
+                        "1. Main Theme (1 sentence)\n"
+                        "2. Key Points (2-3 bullet points)\n\n"
+                        f"Texts: {' | '.join(cluster_texts)}"
+                    )
+                    analysis = call_openai_api(prompt)
+                    st.markdown(analysis)
+                    
+                    # Texts section
+                    st.markdown("**Texts:**")
+                    for text in cluster_texts:
+                        st.text(text)
+                    
+                    # Add some spacing between clusters
+                    st.markdown("---")
 
 def main():
-    st.set_page_config(page_title="Embedding Visualization", layout="wide")
+    st.set_page_config(page_title="Keyword Embedding Visualisation and Clustering", layout="wide")
     
-    st.title("Text Embedding Visualization")
+    st.title("Keyword Embedding Visualization and Clustering")
     
-    # Add description
-    st.markdown("""
-    This tool creates a visualization of text similarities using OpenAI embeddings. 
-    Similar texts will appear closer together and have similar colors in the visualization.
-    
-    ### Features:
-    - Hover over points to see full text
-    - Zoom and pan to explore clusters
-    - Search for specific text below the visualization
-    - Points are color-coded by similarity
-    
-    ### Instructions:
-    1. Enter your texts below (one per line)
-    2. Click 'Generate Visualization' to create the plot
-    """)
-    
-    # Create text input area
+    # Text input area
     text_input = st.text_area(
-        "Enter your texts (one per line):",
-        height=200,
-        placeholder="Enter text here...\nOne item per line..."
+        "Enter keywords (one per line)",
+        height=150,
+        placeholder="Enter your keywords here...\nOne keyword per line..."
     )
     
-    # Add file uploader as an alternative input method
-    uploaded_file = st.file_uploader("Or upload a text file:", type=['txt'])
+    # Parameters in a single row
+    col1, col2, col3 = st.columns(3)
     
-    if uploaded_file is not None:
-        text_input = uploaded_file.getvalue().decode()
-    
-    # Add visualization options
-    col1, col2 = st.columns(2)
     with col1:
-        max_length = st.slider("Maximum label length:", 10, 50, 20)
+        max_length = st.slider("Max text length in visualization", 10, 50, 20)
     
-    # Process input when button is clicked
-    if st.button("Generate Visualization"):
-        if text_input:
-            texts = [line.strip() for line in text_input.split('\n') if line.strip()]
-            if len(texts) < 2:
-                st.error("Please enter at least 2 texts to compare.")
-            else:
-                create_visualization(texts)
+    with col2:
+        n_clusters = st.slider("Number of clusters", 2, 10, 5)
+    
+    with col3:
+        min_cluster_size = st.slider("Minimum cluster size", 1, 10, 3)
+    
+    # Process input
+    if text_input:
+        texts = [line.strip() for line in text_input.split('\n') if line.strip()]
+        if texts:
+            create_visualization(texts, max_length, n_clusters, min_cluster_size)
         else:
-            st.warning("Please enter some text or upload a file.")
+            st.info("Please enter some keywords to begin.")
+    else:
+        st.info("Please enter some keywords to begin.")
 
 if __name__ == "__main__":
-    if not os.getenv('OPENAI_API_KEY'):
-        st.error("Please set your OPENAI_API_KEY in the .env file")
+    if not Config.OPENAI_API_KEY or not Config.OPENROUTER_API_KEY:
+        st.error("Please set your OPENAI_API_KEY and OPENROUTER_API_KEY in the .env file")
     else:
         main()

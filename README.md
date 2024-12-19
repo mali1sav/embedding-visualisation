@@ -1,30 +1,27 @@
-# Embedding Visualization Tool
+# Keyword Embedding Visualization
 
-A Streamlit-based tool for visualizing text embeddings using OpenAI's embedding model and t-SNE dimensionality reduction.
+A Streamlit application that visualizes keyword relationships using OpenAI embeddings and clustering. The app processes keywords, generates embeddings, clusters them, and creates an interactive visualization with cluster summaries.
 
 ## Features
 
-- Generate embeddings for text inputs using OpenAI's API
-- Visualize embeddings in 2D/3D using t-SNE dimensionality reduction
-- Interactive visualization with Plotly
-- Nearest neighbor analysis for exploring similar texts
-- Customizable visualization parameters
+- Text embedding using OpenAI's text-embedding-3-small model
+- Hierarchical clustering with customizable parameters
+- Interactive visualization using Plotly
+- Cluster analysis with key terms and summaries
+- Responsive web interface using Streamlit
 
 ## Requirements
 
-All required packages are listed in `requirements.txt`. Main dependencies include:
-- OpenAI
-- Streamlit
-- Plotly
-- NumPy
-- scikit-learn
-- pandas
+- Python 3.8+
+- OpenAI API key
+- OpenRouter API key
 
-## Setup
+## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/mali1sav/embedding-visualisation.git
+git clone [your-repo-url]
+cd [repo-name]
 ```
 
 2. Install dependencies:
@@ -32,24 +29,26 @@ git clone https://github.com/mali1sav/embedding-visualisation.git
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file in the project root and add your OpenAI API key:
+3. Create a `.env` file in the root directory with your API keys:
 ```
-OPENAI_API_KEY=your_api_key_here
+OPENAI_API_KEY=your_openai_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 ```
 
 ## Usage
 
-Run the Streamlit app:
+1. Run the Streamlit app:
 ```bash
 streamlit run ve.py
 ```
 
-The app will open in your default web browser where you can:
-1. Input your texts
-2. Adjust visualization parameters
-3. Toggle between 2D and 3D views
-4. Explore nearest neighbors
+2. Enter keywords (one per line) in the text area
+3. Adjust the visualization parameters if needed:
+   - Max text length
+   - Number of clusters
+   - Minimum cluster size
+4. View the interactive visualization and cluster analysis in the sidebar
 
 ## Note
 
-Make sure you have a valid OpenAI API key and sufficient credits for generating embeddings.
+This application uses OpenAI's API for embeddings and OpenRouter for LLM functionality. Make sure you have valid API keys and sufficient credits before running the application.
