@@ -4,41 +4,35 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environment
 venv/
 ENV/
 
-# Environment Variables
+# Environment
 .env
 
 # IDE
 .idea/
 .vscode/
-*.swp
-*.swo
 
-# OS
+# Logs
+*.log
+
+# Local development
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Data files
+*.txt
+!requirements.txt
+*.json
+*.csv
+
+# Keep only essential files
+*
+!ve.py
+!core_align.py
+!requirements.txt
+!README.md
+!.gitignore

@@ -347,9 +347,9 @@ def create_visualization(texts, max_length=20, n_clusters=5, min_cluster_size=3)
                 st.sidebar.markdown("<hr>", unsafe_allow_html=True)
 
 def main():
-    st.set_page_config(page_title="Keyword Embedding Visualization", layout="wide")
+    st.set_page_config(page_title="Keyword Embedding Visualization & Clustering", layout="wide")
     
-    st.title("Keyword Embedding Visualization")
+    st.title("Keyword Embedding Visualization & Clustering")
     
     # Text input area
     text_input = st.text_area(
