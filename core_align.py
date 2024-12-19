@@ -1,21 +1,34 @@
 # core_alignment_app.py
 
 import os
-from dotenv import load_dotenv
 import numpy as np
-from openai import OpenAI
-from sklearn.manifold import TSNE
 import streamlit as st
+from openai import OpenAI
 import plotly.graph_objects as go
-import pandas as pd
-from sklearn.cluster import DBSCAN
+from sklearn.manifold import TSNE
+import httpx
+from dotenv import load_dotenv
 import re
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Initialize OpenAI client
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# Initialize OpenAI client with system certificates
+http_client = httpx.Client(
+    base_url="https://openrouter.ai/api/v1",
+    verify="/etc/ssl/cert.pem",
+    timeout=60.0,
+    headers={
+        "HTTP-Referer": "https://github.com/mali1sav/embedding-visualisation",
+        "X-Title": "Embedding Visualisation"
+    }
+)
+
+client = OpenAI(
+    api_key=os.getenv('OPENAI_API_KEY'),
+    http_client=http_client,
+    base_url="https://openrouter.ai/api/v1"
+)
 
 @st.cache_data(show_spinner=False)
 def get_embedding_cached(text, model="text-embedding-3-small"):
@@ -45,7 +58,7 @@ def shorten_text(text, max_length=20):
 def cosine_sim(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-10)
 
-def create_visualization(intent_texts, paragraphs, keywords, max_length, threshold):
+def create_visualisation(intent_texts, paragraphs, keywords, max_length, threshold):
     # Combine all texts and get embeddings
     all_texts = []
     categories = []
@@ -78,7 +91,7 @@ def create_visualization(intent_texts, paragraphs, keywords, max_length, thresho
             embeddings.append(emb)
 
     if len(embeddings) < 2:
-        st.error("Not enough embeddings to visualize. Please provide more data.")
+        st.error("Not enough embeddings to visualise. Please provide more data.")
         return
 
     embeddings_array = np.array(embeddings)
@@ -310,54 +323,63 @@ def create_visualization(intent_texts, paragraphs, keywords, max_length, thresho
         else:
             st.write("None")
 
+    return {
+        'intent_texts': intent_texts,
+        'paragraphs': paragraphs,
+        'keywords': keywords
+    }
+
+def call_openrouter(prompt):
+    try:
+        response = client.chat.completions.create(
+            model="openai/o1",
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            headers={
+                "HTTP-Referer": "https://github.com/mali1sav/embedding-visualisation",
+                "X-Title": "Embedding Visualisation"
+            }
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        st.error(f"Error fetching recommendations:\n{e}")
+        return None
+
 def main():
     st.set_page_config(page_title="Core Alignment - Intent, Paragraphs, Keywords", layout="wide")
 
     st.title("Core Alignment - Intent, Paragraphs, Keywords")
 
-    st.markdown("""
-    This tool helps you visualize and filter content based on its semantic alignment with your main intent.
-    
-    **How to read the chart:**
-    - **Yellow Star**: Your search intent
-    - **Green Circles**: Paragraphs
-    - **Blue Diamonds**: Keywords
+    st.markdown("""    
     - **Color Intensity**: Represents similarity to the core topic. Darker shades indicate higher similarity.
     - **Positions**: Reflect semantic similarity; closer points share more meaning.
-    
-    **Below the chart:**
     - **Content Relevance Based on Similarity Threshold**: Lists of paragraphs and keywords above and below the chosen similarity threshold to help you decide which content to retain or refine for better topical relevance.
-    
-    **Instructions:**
-    1. Enter your search intent below.
-    2. Enter your full article content, separating paragraphs by double newlines.
-    3. Enter your target keywords, one per line.
-    4. Adjust the maximum label length and similarity threshold as needed.
-    5. Click "Generate Visualization" to plot and analyze your content.
     """)
 
     intent_input = st.text_area(
-        "Enter your search intent (one or more sentences):",
+        "Enter your search intent (Thai):",
         height=100,
-        placeholder="What is the core purpose of this page?"
+        placeholder="จุดประสงค์หลักของเนื้อหาคืออะไร?"
     )
 
     paragraphs_input = st.text_area(
-        "Enter your full article content (paragraphs separated by double newlines):",
+        "Enter your full article content (Thai, paragraphs separated by double newlines):",
         height=300,
-        placeholder="Paste the entire article here..."
+        placeholder="วางบทความของคุณที่นี่..."
     )
 
     keywords_input = st.text_area(
-        "Enter your target keywords (one per line):",
+        "Enter your target keywords (Thai, one per line):",
         height=100,
-        placeholder="keyword1\nkeyword2\n..."
+        placeholder="คีย์เวิร์ด1\nคีย์เวิร์ด2\n..."
     )
 
     max_length = st.slider("Maximum label length on chart:", 10, 50, 20)
     threshold = st.slider("Similarity Threshold:", 0.0, 1.0, 0.7, 0.01)
 
-    if st.button("Generate Visualization"):
+    if st.button("Generate visualisation"):
         intent_texts = [i.strip() for i in intent_input.split('\n') if i.strip()]
         raw_paragraphs = [p.strip() for p in paragraphs_input.split('\n\n') if p.strip()]
         keywords = [k.strip() for k in keywords_input.split('\n') if k.strip()]
@@ -365,10 +387,51 @@ def main():
         if not intent_texts and not raw_paragraphs and not keywords:
             st.error("Please provide at least some intent, paragraphs, or keywords.")
         else:
-            create_visualization(intent_texts, raw_paragraphs, keywords, max_length, threshold)
+            viz_data = create_visualisation(intent_texts, raw_paragraphs, keywords, max_length, threshold)
+            if viz_data:
+                st.session_state.visualization_done = True
+                st.session_state.viz_data = viz_data
+
+        # Show SEO recommendations button below visualization
+        if st.session_state.get('visualization_done', False):
+            st.markdown("---")
+            if st.button("Generate SEO Recommendations"):
+                data = st.session_state.viz_data
+                prompt = f"""
+                Content Analysis Request:
+                
+                1. Main Intent:
+                {' '.join(data['intent_texts'])}
+                
+                2. Current Content:
+                {' '.join(data['paragraphs'])}
+                
+                3. Target Keywords:
+                {', '.join(data['keywords'])}
+                
+                Please analyze the current content and suggest how to:
+
+                1. Blend and integrate relevant target keywords into already strong sections of the existing content.
+                2. Identify paragraphs that can be merged or restructured to improve flow and clarity, rather than just adding new content.
+                3. Suggest which paragraphs could be removed if they do not serve the main intent or user needs.
+                4. Provide guidance on rewriting certain parts to more naturally incorporate keywords and related concepts while maintaining a coherent narrative.
+                
+                Note: All recommendations should be practical, specific, and suitable for a Thai content editor looking to refine the existing piece for better search visibility and user satisfaction.
+                """
+                
+                with st.spinner("กำลังสร้างคำแนะนำ SEO..."):
+                    recommendations = call_openrouter(prompt)
+                    if recommendations:
+                        st.markdown("## SEO Recommendations")
+                        st.write(recommendations)
+                    else:
+                        st.error("ไม่สามารถสร้างคำแนะนำได้ โปรดตรวจสอบการตั้งค่าหรือ API key อีกครั้ง")
 
 if __name__ == "__main__":
     if not os.getenv('OPENAI_API_KEY'):
-        st.error("Please set your OPENAI_API_KEY in the .env file")
-    else:
-        main()
+        st.error("OPENAI_API_KEY not found in environment variables. Please add it to your .env file.")
+        st.stop()
+    if not os.getenv('OPENROUTER_API_KEY'):
+        st.error("OPENROUTER_API_KEY not found in environment variables. Please add it to your .env file.")
+        st.stop()
+    main()
