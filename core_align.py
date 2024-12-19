@@ -9,25 +9,35 @@ from sklearn.manifold import TSNE
 import httpx
 from dotenv import load_dotenv
 import re
+from sklearn.cluster import DBSCAN
+import pandas as pd
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Initialize OpenAI client with system certificates
+# Initialize OpenAI client with appropriate SSL verification
+ssl_verify = "/etc/ssl/cert.pem" if os.path.exists("/etc/ssl/cert.pem") else True
+
+# Initialize HTTP client
 http_client = httpx.Client(
     base_url="https://openrouter.ai/api/v1",
-    verify="/etc/ssl/cert.pem",
+    verify=ssl_verify,
     timeout=60.0,
     headers={
-        "HTTP-Referer": "https://github.com/mali1sav/embedding-visualisation",
-        "X-Title": "Embedding Visualisation"
+        "HTTP-Referer": "https://embedding-visualisation.streamlit.app",  # Update with your Streamlit app URL
+        "X-Title": "Embedding Visualisation",
+        "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"
     }
 )
 
 client = OpenAI(
-    api_key=os.getenv('OPENAI_API_KEY'),
+    api_key=os.getenv('OPENROUTER_API_KEY'),
     http_client=http_client,
-    base_url="https://openrouter.ai/api/v1"
+    base_url="https://openrouter.ai/api/v1",
+    default_headers={
+        "HTTP-Referer": "https://embedding-visualisation.streamlit.app",  # Update with your Streamlit app URL
+        "X-Title": "Embedding Visualisation"
+    }
 )
 
 @st.cache_data(show_spinner=False)
@@ -338,7 +348,7 @@ def call_openrouter(prompt):
                 "content": prompt
             }],
             headers={
-                "HTTP-Referer": "https://github.com/mali1sav/embedding-visualisation",
+                "HTTP-Referer": "https://embedding-visualisation.streamlit.app",  # Update with your Streamlit app URL
                 "X-Title": "Embedding Visualisation"
             }
         )
@@ -428,10 +438,7 @@ def main():
                         st.error("ไม่สามารถสร้างคำแนะนำได้ โปรดตรวจสอบการตั้งค่าหรือ API key อีกครั้ง")
 
 if __name__ == "__main__":
-    if not os.getenv('OPENAI_API_KEY'):
-        st.error("OPENAI_API_KEY not found in environment variables. Please add it to your .env file.")
-        st.stop()
     if not os.getenv('OPENROUTER_API_KEY'):
-        st.error("OPENROUTER_API_KEY not found in environment variables. Please add it to your .env file.")
+        st.error("OPENROUTER_API_KEY not found in environment variables. Please add it to your .env file or Streamlit secrets.")
         st.stop()
     main()
