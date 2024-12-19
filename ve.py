@@ -81,6 +81,8 @@ def call_openai_api(prompt, temperature=0.7, max_tokens=150):
             "max_tokens": max_tokens
         }
         
+        st.write("Debug - API Key present:", bool(Config.OPENROUTER_API_KEY))
+        
         response = http.request(
             'POST',
             "https://openrouter.ai/api/v1/chat/completions",
@@ -88,6 +90,7 @@ def call_openai_api(prompt, temperature=0.7, max_tokens=150):
             body=json.dumps(payload).encode('utf-8')
         )
         
+        st.write("Debug - Response Status:", response.status)
         if response.status != 200:
             error_msg = response.data.decode('utf-8')
             st.write("Debug - Error Response:", error_msg)
@@ -198,6 +201,45 @@ def create_visualization(texts, max_length=20, n_clusters=5, min_cluster_size=3)
         st.warning("No texts to visualize.")
         return
 
+    # Initialize sidebar with custom CSS
+    st.sidebar.markdown("""
+        <style>
+        .cluster-box {
+            background-color: #f0f2f6;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .cluster-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+        .term-box {
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .summary-box {
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.sidebar.title("Cluster Analysis")
+
+    # Initialize sidebar
+    # st.sidebar.title("Cluster Summaries")
+
     # Get embeddings for all texts
     embeddings = []
     processed_texts = []
@@ -238,13 +280,17 @@ def create_visualization(texts, max_length=20, n_clusters=5, min_cluster_size=3)
         mask = labels == cluster_id
         cluster_texts = [shorten_text(text, max_length) for text, is_in_cluster in zip(processed_texts, mask) if is_in_cluster]
         
+        # Get representative terms for cluster
+        top_terms = get_cluster_terms(processed_texts, labels, cluster_id)
+        cluster_label = f"Cluster {cluster_id}<br>Top terms: {', '.join(top_terms)}"
+        
         fig.add_trace(go.Scatter(
             x=X_2d[mask, 0],
             y=X_2d[mask, 1],
             mode='markers+text',
             name=f'Cluster {cluster_id}',
             text=cluster_texts,
-            hovertext=cluster_texts,
+            hovertext=[f"{text}<br>{cluster_label}" for text in cluster_texts],
             hoverinfo='text',
             textposition='top center'
         ))
@@ -262,52 +308,48 @@ def create_visualization(texts, max_length=20, n_clusters=5, min_cluster_size=3)
     # Show plot
     st.plotly_chart(fig, use_container_width=True)
     
-    # Display cluster analysis in columns
-    st.markdown("## Cluster Analysis")
-    
-    # Calculate number of columns (2 or 3 depending on number of clusters)
-    num_cols = min(3, len(unique_labels))
-    cols = st.columns(num_cols)
-    
-    # Generate cluster summaries
+    # Generate cluster summaries in sidebar with improved formatting
     with st.spinner('Generating cluster summaries...'):
-        for idx, cluster_id in enumerate(unique_labels):
-            col_idx = idx % num_cols
+        for cluster_id in unique_labels:
             cluster_texts = [text for text, label in zip(processed_texts, labels) if label == cluster_id]
-            
             if cluster_texts:
-                with cols[col_idx]:
-                    # Debug info (collapsed by default)
-                    with st.expander("🔍 Debug Info", expanded=False):
-                        st.text(f"API Key present: {bool(Config.OPENROUTER_API_KEY)}")
-                        st.text("Response Status: 200")
-                    
-                    # Cluster header
-                    st.markdown(f"#### Cluster {cluster_id}")
-                    
-                    # Analysis section
-                    st.markdown("**Analysis:**")
-                    prompt = (
-                        "Analyze these related texts and provide:\n"
-                        "1. Main Theme (1 sentence)\n"
-                        "2. Key Points (2-3 bullet points)\n\n"
-                        f"Texts: {' | '.join(cluster_texts)}"
-                    )
-                    analysis = call_openai_api(prompt)
-                    st.markdown(analysis)
-                    
-                    # Texts section
-                    st.markdown("**Texts:**")
+                st.sidebar.markdown(f"""
+                    <div class="cluster-box">
+                        <div class="cluster-title">Cluster {cluster_id}</div>
+                        <div class="section-title">Key Terms:</div>
+                        <div class="term-box">
+                            {format_cluster_terms(get_cluster_terms(processed_texts, labels, cluster_id))}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Get the summary
+                prompt = (
+                    f"Analyze these related texts and provide:\n"
+                    f"1. Main Theme (1 sentence)\n"
+                    f"2. Key Points (2-3 bullet points)\n\n"
+                    f"Texts: {' | '.join(cluster_texts)}"
+                )
+                summary = call_openai_api(prompt)
+                
+                st.sidebar.markdown(f"""
+                    <div class="summary-box">
+                        <div class="section-title">Analysis:</div>
+                        {summary}
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Show cluster texts in an expander
+                with st.sidebar.expander("📄 View All Texts"):
                     for text in cluster_texts:
-                        st.text(text)
-                    
-                    # Add some spacing between clusters
-                    st.markdown("---")
+                        st.markdown(f"• {text}")
+                
+                st.sidebar.markdown("<hr>", unsafe_allow_html=True)
 
 def main():
-    st.set_page_config(page_title="Keyword Embedding Visualisation and Clustering", layout="wide")
+    st.set_page_config(page_title="Keyword Embedding Visualization", layout="wide")
     
-    st.title("Keyword Embedding Visualization and Clustering")
+    st.title("Keyword Embedding Visualization")
     
     # Text input area
     text_input = st.text_area(
