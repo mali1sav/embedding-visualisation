@@ -161,7 +161,12 @@ def get_cluster_terms(texts, labels, cluster_id):
     Get the most representative terms for a cluster using TF-IDF.
     """
     # Create TF-IDF vectorizer
-    vectorizer = TfidfVectorizer(stop_words='english')
+    from pythainlp.tokenize import word_tokenize
+
+    def thai_tokenizer(text):
+        return word_tokenize(text)
+
+    vectorizer = TfidfVectorizer(tokenizer=thai_tokenizer)
     
     # Get texts for this cluster
     cluster_texts = [text for text, label in zip(texts, labels) if label == cluster_id]
