@@ -72,7 +72,7 @@ def call_openai_api(prompt, temperature=0.7, max_tokens=150):
         }
         
         payload = {
-            "model": "openai/o1",
+            "model": "google/gemini-2.0-flash-thinking-exp:free",
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
                 {"role": "user", "content": prompt}
