@@ -307,6 +307,16 @@ def create_visualization(texts, max_length=20, n_clusters=5, min_cluster_size=3)
 def main():
     st.set_page_config(page_title="Keyword Embedding Visualisation and Clustering", layout="wide")
     
+    # Initialize session state
+    if 'texts' not in st.session_state:
+        st.session_state.texts = []
+    if 'embeddings' not in st.session_state:
+        st.session_state.embeddings = []
+    if 'labels' not in st.session_state:
+        st.session_state.labels = []
+    if 'X_2d' not in st.session_state:
+        st.session_state.X_2d = None
+    
     st.title("Keyword Embedding Visualization and Clustering")
     
     # Text input area
